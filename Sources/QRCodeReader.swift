@@ -210,6 +210,13 @@ public final class QRCodeReader: NSObject, AVCaptureMetadataOutputObjectsDelegat
     }
   }
 
+  /// Sets `metadataOutput.rectOfInterest` on the session queue, where the session is configured.
+  func setMetadataRectOfInterest(_ rect: CGRect) {
+    sessionQueue.async {
+      self.metadataOutput.rectOfInterest = rect
+    }
+  }
+
   /// Stops scanning the codes.
   public func stopScanning() {
     sessionQueue.async {

@@ -66,8 +66,8 @@ public final class ReaderOverlayView: UIView {
       case .wrong:
         overlay.strokeColor = highlightWrongColor.cgColor
       }
-      
-      setNeedsDisplay()
+
+      setNeedsLayout()
     }
   }
   
@@ -100,19 +100,28 @@ public final class ReaderOverlayView: UIView {
 
   var rectOfInterest: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1) {
     didSet {
-      setNeedsDisplay()
+      setNeedsLayout()
     }
   }
 
-  public override func draw(_ rect: CGRect) {
-    let innerRect = CGRect(
-      x: rect.width * rectOfInterest.minX,
-      y: rect.height * rectOfInterest.minY,
-      width: rect.width * rectOfInterest.width,
-      height: rect.height * rectOfInterest.height
+  /// The scanning area drawn by the overlay, expressed in the coordinate space of the given bounds.
+  func innerRect(in bounds: CGRect) -> CGRect {
+    return CGRect(
+      x: bounds.minX + bounds.width * rectOfInterest.minX,
+      y: bounds.minY + bounds.height * rectOfInterest.minY,
+      width: bounds.width * rectOfInterest.width,
+      height: bounds.height * rectOfInterest.height
     )
+  }
 
-    overlay.path = UIBezierPath(roundedRect: innerRect, cornerRadius: 5).cgPath
+  // The path is rebuilt on every layout so the frame follows size changes (rotation, window resizing).
+  public override func layoutSubviews() {
+    super.layoutSubviews()
+
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    overlay.path = UIBezierPath(roundedRect: innerRect(in: bounds), cornerRadius: 5).cgPath
+    CATransaction.commit()
   }
 }
 

@@ -73,9 +73,12 @@ final public class QRCodeReaderView: UIView, QRCodeReaderDisplayable {
 
   private weak var reader: QRCodeReader?
 
+  private var rectOfInterestFollowsOverlay = false
+
   public func setupComponents(with builder: QRCodeReaderViewControllerBuilder) {
-    self.reader               = builder.reader
-    reader?.lifeCycleDelegate = self
+    self.reader                  = builder.reader
+    reader?.lifeCycleDelegate    = self
+    rectOfInterestFollowsOverlay = builder.rectOfInterestFollowsOverlay
 
     addComponents()
 
@@ -92,7 +95,17 @@ final public class QRCodeReaderView: UIView, QRCodeReaderDisplayable {
 
     if builder.showCancelButton {
       addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|[cv][cb(40)]|", options: [], metrics: nil, views: views))
-      addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|-[cb]-|", options: [], metrics: nil, views: views))
+
+      if #available(iOS 11.0, *) {
+        // 8 matches the default layout margin the former "H:|-[cb]-|" resolved to, without depending on layout margins.
+        NSLayoutConstraint.activate([
+          cb.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 8),
+          safeAreaLayoutGuide.trailingAnchor.constraint(equalTo: cb.trailingAnchor, constant: 8)
+        ])
+      }
+      else {
+        addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|-[cb]-|", options: [], metrics: nil, views: views))
+      }
     }
     else {
       addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|[cv]|", options: [], metrics: nil, views: views))
@@ -100,16 +113,44 @@ final public class QRCodeReaderView: UIView, QRCodeReaderDisplayable {
 
     if builder.showSwitchCameraButton {
       addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|-[scb(50)]", options: [], metrics: nil, views: views))
-      addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:[scb(70)]|", options: [], metrics: nil, views: views))
+
+      if #available(iOS 11.0, *) {
+        NSLayoutConstraint.activate([
+          scb.widthAnchor.constraint(equalToConstant: 70),
+          scb.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
+        ])
+      }
+      else {
+        addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:[scb(70)]|", options: [], metrics: nil, views: views))
+      }
     }
 
     if builder.showTorchButton {
       addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "V:|-[ttb(50)]", options: [], metrics: nil, views: views))
-      addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|[ttb(70)]", options: [], metrics: nil, views: views))
+
+      if #available(iOS 11.0, *) {
+        NSLayoutConstraint.activate([
+          ttb.widthAnchor.constraint(equalToConstant: 70),
+          ttb.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor)
+        ])
+      }
+      else {
+        addConstraints(NSLayoutConstraint.constraints(withVisualFormat: "H:|[ttb(70)]", options: [], metrics: nil, views: views))
+      }
     }
 
-    for attribute in Array<NSLayoutConstraint.Attribute>([.left, .top, .right, .bottom]) {
-      addConstraint(NSLayoutConstraint(item: ov, attribute: attribute, relatedBy: .equal, toItem: cameraView, attribute: attribute, multiplier: 1, constant: 0))
+    if #available(iOS 11.0, *), builder.overlayRespectsSafeArea {
+      NSLayoutConstraint.activate([
+        ov.topAnchor.constraint(equalTo: cameraView.topAnchor),
+        ov.bottomAnchor.constraint(equalTo: cameraView.bottomAnchor),
+        ov.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+        ov.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
+      ])
+    }
+    else {
+      for attribute in Array<NSLayoutConstraint.Attribute>([.left, .top, .right, .bottom]) {
+        addConstraint(NSLayoutConstraint(item: ov, attribute: attribute, relatedBy: .equal, toItem: cameraView, attribute: attribute, multiplier: 1, constant: 0))
+      }
     }
 
     if let readerOverlayView = overlayView as? ReaderOverlayView {
@@ -120,7 +161,32 @@ final public class QRCodeReaderView: UIView, QRCodeReaderDisplayable {
   public override func layoutSubviews() {
     super.layoutSubviews()
 
-    reader?.previewLayer.frame = bounds
+    // The preview layer lives in cameraView, so it must match cameraView (not the whole view including the cancel button area),
+    // otherwise its center is offset from the overlay drawn over cameraView.
+    if let previewLayer = reader?.previewLayer {
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      previewLayer.frame = cameraView.bounds
+      CATransaction.commit()
+    }
+
+    updateMetadataRectOfInterestIfNeeded()
+  }
+
+  /// Converts the frame drawn by the overlay into the metadata output coordinate space and applies it as the rect of interest.
+  private func updateMetadataRectOfInterestIfNeeded() {
+    // The conversion depends on the active video connection, which only exists while the session runs.
+    guard rectOfInterestFollowsOverlay,
+          let reader = reader, reader.isRunning, reader.previewLayer.connection != nil,
+          let ov = overlayView as? ReaderOverlayView, !ov.bounds.isEmpty else { return }
+
+    let layerRect    = ov.layer.convert(ov.innerRect(in: ov.bounds), to: reader.previewLayer)
+    let metadataRect = reader.previewLayer.metadataOutputRectConverted(fromLayerRect: layerRect)
+    let clampedRect  = metadataRect.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+
+    guard !clampedRect.isNull, !clampedRect.isEmpty else { return }
+
+    reader.setMetadataRectOfInterest(clampedRect)
   }
 
   // MARK: - Scan Result Indication
@@ -155,6 +221,9 @@ final public class QRCodeReaderView: UIView, QRCodeReaderDisplayable {
 
       connection.videoOrientation = QRCodeReader.videoOrientation(deviceOrientation: orientation, withSupportedOrientations: supportedInterfaceOrientations, fallbackOrientation: connection.videoOrientation)
     }
+
+    // The video orientation changes the conversion, and this method also runs when scanning starts.
+    updateMetadataRectOfInterestIfNeeded()
   }
 
   // MARK: - Convenience Methods
