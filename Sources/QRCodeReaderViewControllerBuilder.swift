@@ -108,9 +108,27 @@ public final class QRCodeReaderViewControllerBuilder {
   public var preferredStatusBarStyle: UIStatusBarStyle? = nil
 
   /**
+   Flag to pin the left and right edges of the overlay view to the safe area of the reader view instead of the camera view edges.
+   False by default: the overlay covers the whole camera view.
+  */
+  public var overlayRespectsSafeArea = false
+
+  /**
+   Flag to make the detection area follow the frame drawn by the overlay view.
+
+   When true, `rectOfInterest` is interpreted as a rectangle relative to the overlay view bounds (the frame you see on screen).
+   The reader converts it to the metadata output coordinate space with `AVCaptureVideoPreviewLayer.metadataOutputRectConverted(fromLayerRect:)`
+   each time the layout or the video orientation changes, so the cropping of the aspect-fill preview is taken into account.
+   False by default: `rectOfInterest` is applied as is to the metadata output.
+  */
+  public var rectOfInterestFollowsOverlay = false
+
+  /**
    Specifies a rectangle of interest for limiting the search area for visual metadata.
 
    The value of this property is a CGRect that determines the receiver's rectangle of interest for each frame of video. The rectangle's origin is top left and is relative to the coordinate space of the device providing the metadata. Specifying a rectOfInterest may improve detection performance for certain types of metadata. The default value of this property is the value CGRectMake(0, 0, 1, 1). Metadata objects whose bounds do not intersect with the rectOfInterest will not be returned.
+
+   When `rectOfInterestFollowsOverlay` is true, this value is instead the rectangle relative to the overlay view bounds, and the value written to the metadata output is computed from it once the session is running.
   */
   public var rectOfInterest: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1) {
     didSet {

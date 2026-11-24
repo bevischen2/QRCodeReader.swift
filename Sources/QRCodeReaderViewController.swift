@@ -107,12 +107,6 @@ public class QRCodeReaderViewController: UIViewController {
     super.viewWillDisappear(animated)
   }
 
-  override public func viewWillLayoutSubviews() {
-    super.viewWillLayoutSubviews()
-
-    codeReader.previewLayer.frame = view.bounds
-  }
-
   public override var preferredStatusBarStyle: UIStatusBarStyle {
     return builder.preferredStatusBarStyle ?? super.preferredStatusBarStyle
   }
@@ -173,6 +167,11 @@ public class QRCodeReaderViewController: UIViewController {
   @objc func switchCameraAction(_ button: SwitchCameraButton) {
     if let newDevice = codeReader.switchDeviceInput() {
       delegate?.reader(self, didSwitchCamera: newDevice)
+    }
+
+    // The new camera has its own connection (e.g. mirrored front camera), so the converted rect of interest must be recomputed.
+    if builder.rectOfInterestFollowsOverlay {
+      builder.readerView.view.setNeedsLayout()
     }
   }
   
